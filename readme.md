@@ -1,23 +1,93 @@
-# MMAR Metamodeling Platform - Metamodeling Client Project
+# mmar-metamodeling-client-react
 
-This project is part of the MMAR Metamodeling Platform, focusing on the Metamodeling Client.
+The MMAR **metamodel-design** tool: a single-page application for authoring the
+metamodels that the MMAR modelling and AR clients then instantiate. Built with
+**React + TypeScript + Vite + MUI + Zustand**, talking to `mmar-server`.
 
-## Installation
+## What it does
 
-The Metamodeling Client is part of the MMAR Metamodeling Platform. To install the entire platform, please refer to the [MMAR repository](https://github.com/MM-AR/mmar) or the Wiki Entry of the [MMAR Manual Installation](https://github.com/MM-AR/mmar/wiki/Manual-MMAR-Installation).
+Sign in, browse the eleven kinds of meta object the server holds, and edit them:
+their own fields, the children they contain, the references between them, and —
+for the concepts that are drawn in 3D — their **VizRep**, the JavaScript that
+renders them, with a live preview.
 
+## Architecture
 
-## Contributing
+There is no router. What you see is decided by a selection store and by a strip
+of open editor tabs, VS Code style: each tab owns its own working copy of an
+object, so unsaved edits survive switching between them and are only reconciled
+with the loaded collections when the tab is saved.
 
-We welcome contributions! Please follow these steps:
+- **`src/resources/meta-model/`** — `meta-types.ts`, the single source of truth
+  for the eleven meta types: which store collection holds each one, which REST
+  route it lives at, and how it is labelled. The store, the backend service and
+  the left navigation are all derived from it.
+- **`src/resources/store/`** — Zustand stores:
+  - `selectedObjectStore` — the loaded metamodel, the selection, the open tabs
+    and their per-tab undo history (`tab-history.ts`).
+  - `authStore` — sign in/out, backed by the bearer token in local storage.
+  - `logStore` — the log list plus the error snackbar.
+  - `uiStore` — the refresh signal the left navigation listens on.
 
-1. Fork the development branche of the repository you want to work on.
-2. Create a new branch (`git checkout -b feature/your-feature`).
-3. Commit your changes (`git commit -am 'Add new feature'`).
-4. Push to the branch (`git push origin feature/your-feature`).
-5. Create a new Pull Request.
+  Signing out tears the session out of every one of these but `uiStore` — see
+  [CODE_GUIDE.md](CODE_GUIDE.md#session-teardown-signing-out).
+- **`src/resources/services/`** — the backend service and the framework-agnostic
+  helpers built on it (file caching, metamodel lookups, VizRep icon extraction),
+  plus the two halves of the sign-out teardown, `session-reset.ts` (the stores)
+  and `engine-reset.ts` (the 3D engine).
+- **`src/views/`** — the UI, one folder per region: `layout/`, `top-nav-bar/`,
+  `toolbar/`, `left-nav/`, `object-list/`, `object-tabs/`, `middle-body/` (the
+  General tab and the structural tabs), `code-editor/`, `three-canvas/`,
+  `preview-buttons/`, `log-window/`, `footer/`, `auth/`, and `common/` for the
+  pieces shared between them.
+- **`src/engine/`** — the Three.js engine that renders the VizRep preview.
 
-Contributions must be documented to be merged into the project. If you contribute something to the project, please document the according changes into the Wiki, or the readme.
+## Shared data structures (`@gds`)
+
+The DTOs in the sibling `../mmar-global-data-structure` are consumed unchanged
+through the `@gds` path alias (configured in both `vite.config.ts` and
+`tsconfig.json`) — not copied, not installed from npm. They are (de)serialised
+with `class-transformer`, which is why `reflect-metadata` is the **first** import
+of `src/main.tsx`.
+
+Note that only scene types and scene instances are ever revived into their
+classes; every other collection holds the raw JSON the server sent. Code that
+needs to know what an object is therefore dispatches on the store's `type` tag,
+never on `instanceof`.
+
+## Configuration
+
+Configuration comes from Vite environment variables, surfaced through
+`src/config.ts`:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VITE_API_URL` | `http://localhost:8000` | Base URL of `mmar-server` |
+
+Set it in `.env` / `.env.development`. The browser runs on the host, so keep
+`VITE_API_URL=http://localhost:8000` even under Docker: the `mmar_server`
+service hostname does not resolve in the browser, and the port is host-mapped.
+
+## Run / build
+
+```bash
+npm install
+npm run dev        # Vite dev server on http://localhost:8075
+npm run build      # tsc --noEmit && vite build
+npm run preview    # serve the production build
+npm run typecheck  # tsc --noEmit
+npm run test       # vitest run
+npm run lint       # eslint
+```
+
+The app needs **`mmar-server` on `:8000`** (`cd ../mmar-server && npm run debug`,
+plus a reachable Postgres). Log in with the development credentials
+(`admin` / `admin`).
+
+Bundling splits `three`, `monaco-editor` and the React/MUI vendor code into
+their own chunks, and the two subtrees that pull the first two in — the VizRep
+editor and the procedure editor — are loaded lazily, so neither is downloaded
+before you open an object that needs it.
 
 ## License
 
